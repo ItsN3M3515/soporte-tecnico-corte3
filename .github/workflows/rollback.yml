@@ -1,0 +1,62 @@
+name: Reversión
+
+# Reversión manual: vuelve a desplegar en un entorno una versión que ya está en GHCR, sin reconstruir.
+# Uso: pestaña Actions → Reversión → Run workflow, o con la CLI:
+#   gh workflow run rollback.yml -f entorno=produccion -f version=sha-1a2b3c4
+# Sin versión, vuelve a la anterior registrada en el servidor (version-anterior).
+on:
+  workflow_dispatch:
+    inputs:
+      entorno:
+        description: Entorno a revertir
+        type: choice
+        options: [produccion, pruebas]
+        default: produccion
+      version:
+        description: Etiqueta a desplegar (sha-xxxxxxx o vX.Y.Z). Vacío = la versión anterior.
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-despliegue
+  cancel-in-progress: false
+
+jobs:
+  revertir:
+    name: Revertir ${{ inputs.entorno }}
+    runs-on: [self-hosted, asistec]
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.entorno }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Iniciar sesión en GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Volver a la versión indicada
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/rollback.sh "${{ inputs.entorno }}" ${VERSION:+"$VERSION"}
+      - name: Cerrar sesión en GHCR
+        if: always()
+        run: docker logout ghcr.io
+
+  verificar:
+    name: Prueba de humo después de revertir
+    needs: revertir
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Flujo principal
+        run: |
+          if [[ "${{ inputs.entorno }}" == "produccion" ]]; then
+            scripts/smoke-test.sh "${{ vars.URL_PRODUCCION }}" lectura
+          else
+            scripts/smoke-test.sh "${{ vars.URL_PRUEBAS }}" completo
+          fi

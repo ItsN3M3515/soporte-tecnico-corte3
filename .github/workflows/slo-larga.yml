@@ -1,0 +1,45 @@
+name: Prueba de carga larga
+
+# La prueba corta del SLO corre en cada despliegue (cd.yml). Esta es la larga: el escenario "pico"
+# del Corte 2 contra el entorno de pruebas. Corre a mano o los lunes a las 06:00 de Bogotá (11:00 UTC).
+on:
+  workflow_dispatch:
+    inputs:
+      escenario:
+        description: Escenario de perf/scripts
+        type: choice
+        options: [pico, baseline]
+        default: pico
+  schedule:
+    - cron: '0 11 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  carga:
+    name: Prueba de carga larga (${{ inputs.escenario || 'pico' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '2.3.0'
+      - name: Esperar el healthcheck del entorno de pruebas
+        run: |
+          for i in $(seq 1 24); do curl -sf --max-time 10 "${{ vars.URL_PRUEBAS }}/api/salud" && exit 0; sleep 5; done; exit 1
+      - name: Escenario con los umbrales del SLO
+        run: |
+          mkdir -p reportes
+          k6 run -e API_URL="${{ vars.URL_PRUEBAS }}/api" \
+            --summary-export reportes/carga-larga.json perf/scripts/${{ inputs.escenario || 'pico' }}.js
+          # Sin los JWT de setup() en el artefacto (hallazgo H-02)
+          jq 'del(.setup_data)' reportes/carga-larga.json > reportes/tmp.json && mv reportes/tmp.json reportes/carga-larga.json
+      - name: Publicar reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-carga-larga
+          path: reportes/carga-larga.json
+          if-no-files-found: ignore

@@ -1,0 +1,265 @@
+name: CD
+
+# Entrega continua: cada cambio que llega a main (o cada tag vX.Y.Z) pasa por:
+#
+#   CI completo ─► publicar imágenes en GHCR (sha-<commit> y vX.Y.Z)
+#              ─► desplegar en PRUEBAS (base de datos nueva) ─► prueba de humo ─► SLO con k6 ─► DAST con ZAP
+#              ─► desplegar en PRODUCCIÓN ─► prueba de humo (solo lectura)
+#                                          └─ si falla: reversión automática a la versión anterior
+#
+# Los despliegues corren en el runner autohospedado (VM "asistec" en el servidor del equipo, etiqueta
+# "asistec") con Docker Compose. Las verificaciones corren en runners de GitHub contra las URL
+# públicas, como lo haría un usuario. Un fallo en cualquier etapa deja el pipeline en rojo.
+#
+# Configuración en GitHub (ver docs/implementacion.md):
+#   Environments "pruebas" y "produccion", cada uno con el secreto JWT_SECRET.
+#   Variables del repositorio URL_PRUEBAS y URL_PRODUCCION (https://..., sin / al final).
+on:
+  push:
+    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Nunca dos despliegues a la vez, y uno en curso no se cancela a la mitad.
+concurrency:
+  group: cd-despliegue
+  cancel-in-progress: false
+
+env:
+  REGISTRO: ghcr.io/itsn3m3515
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      pull-requests: write
+
+  publicar:
+    name: Publicar imágenes en GHCR
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write   # solo este job puede publicar en el registro
+    outputs:
+      etiqueta: ${{ steps.etiqueta.outputs.valor }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Etiqueta que se despliega: la versión si es un tag, si no sha-<commit corto>. Nunca latest.
+      - name: Calcular la etiqueta a desplegar
+        id: etiqueta
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then echo "valor=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else echo "valor=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Etiquetas y metadatos de la imagen del backend
+        id: meta-backend
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRO }}/asistec-backend
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern=v{{version}}
+
+      - name: Etiquetas y metadatos de la imagen web
+        id: meta-web
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRO }}/asistec-web
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern=v{{version}}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Iniciar sesión en GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Misma caché de capas que el job "imagen" de CI: se publica lo que CI ya construyó y escaneó.
+      - name: Construir y publicar el backend
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha,scope=backend
+
+      - name: Construir y publicar la web
+        uses: docker/build-push-action@v7
+        with:
+          context: app
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+
+      - name: Resumen
+        run: |
+          {
+            echo "### Imágenes publicadas"
+            echo '```'
+            echo "${{ steps.meta-backend.outputs.tags }}"
+            echo "${{ steps.meta-web.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  desplegar-pruebas:
+    name: Desplegar en pruebas
+    needs: publicar
+    runs-on: [self-hosted, asistec]
+    timeout-minutes: 10
+    environment:
+      name: pruebas
+      url: ${{ vars.URL_PRUEBAS }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Escribir el .env del entorno desde GitHub Secrets
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: scripts/escribir-env.sh pruebas 8081 3001
+      - name: Iniciar sesión en GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Desplegar ${{ needs.publicar.outputs.etiqueta }}
+        run: scripts/deploy.sh pruebas "${{ needs.publicar.outputs.etiqueta }}"
+      - name: Cerrar sesión en GHCR
+        if: always()
+        run: docker logout ghcr.io
+
+  humo-pruebas:
+    name: Prueba de humo (pruebas)
+    needs: desplegar-pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Flujo principal completo
+        run: scripts/smoke-test.sh "${{ vars.URL_PRUEBAS }}" completo
+
+  slo:
+    name: Prueba de carga del SLO (pruebas)
+    needs: humo-pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Instalar k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '2.3.0'
+      - name: SLO del Corte 2 (p95 crear ≤ 500 ms, p95 cola ≤ 300 ms, errores < 1 %)
+        run: scripts/slo.sh "${{ vars.URL_PRUEBAS }}" 30s
+      - name: Publicar reporte de carga
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-slo
+          path: reportes/slo-resumen.json
+          if-no-files-found: ignore
+
+  dast:
+    name: DAST (OWASP ZAP baseline)
+    needs: humo-pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # Escaneo pasivo del entorno de pruebas. Las reglas que detienen el pipeline (FAIL) y las que
+      # se tratan como hallazgos registrados están en .zap/reglas.tsv (ver docs/seguridad.md).
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          docker_name: ghcr.io/zaproxy/zaproxy:2.17.0
+          target: ${{ vars.URL_PRUEBAS }}
+          rules_file_name: .zap/reglas.tsv
+          cmd_options: '-I -a'
+          allow_issue_writing: false
+          fail_action: true
+          artifact_name: reporte-dast
+
+  desplegar-produccion:
+    name: Desplegar en producción
+    needs: [publicar, slo, dast]
+    runs-on: [self-hosted, asistec]
+    timeout-minutes: 10
+    # Si se agregan "Required reviewers" al environment, aquí el pipeline espera la aprobación.
+    environment:
+      name: produccion
+      url: ${{ vars.URL_PRODUCCION }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Escribir el .env del entorno desde GitHub Secrets
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: scripts/escribir-env.sh produccion 8080 3000
+      - name: Iniciar sesión en GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Desplegar ${{ needs.publicar.outputs.etiqueta }}
+        run: scripts/deploy.sh produccion "${{ needs.publicar.outputs.etiqueta }}"
+      - name: Cerrar sesión en GHCR
+        if: always()
+        run: docker logout ghcr.io
+
+  humo-produccion:
+    name: Prueba de humo (producción)
+    needs: desplegar-produccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Flujo principal (solo lectura, no crea datos en producción)
+        run: scripts/smoke-test.sh "${{ vars.URL_PRODUCCION }}" lectura
+
+  revertir-produccion:
+    name: Reversión automática (producción)
+    needs: humo-produccion
+    if: failure()
+    runs-on: [self-hosted, asistec]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Iniciar sesión en GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Volver a la versión anterior
+        run: scripts/rollback.sh produccion
+      - name: Cerrar sesión en GHCR
+        if: always()
+        run: docker logout ghcr.io
+
+  release:
+    name: Release en GitHub
+    needs: humo-produccion
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Crear la release con las notas de los pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

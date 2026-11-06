@@ -1,0 +1,10 @@
+# Se suma a docker-compose.yml en el servidor de despliegue (scripts/deploy.sh):
+# usa las imágenes que publicó el pipeline en GHCR, etiquetadas con el SHA del commit
+# o con la versión (vX.Y.Z), en lugar de construirlas. Nunca "latest".
+services:
+  backend:
+    image: ghcr.io/itsn3m3515/asistec-backend:${IMAGE_TAG:?Defina IMAGE_TAG (sha-xxxxxxx o vX.Y.Z)}
+    pull_policy: always
+  web:
+    image: ghcr.io/itsn3m3515/asistec-web:${IMAGE_TAG:?Defina IMAGE_TAG (sha-xxxxxxx o vX.Y.Z)}
+    pull_policy: always
