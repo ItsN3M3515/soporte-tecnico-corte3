@@ -1,5 +1,11 @@
 # Dependabot mantiene las dependencias al día con pull requests semanales.
-# No reemplaza el control de SCA (scripts/sca.sh): cada PR de Dependabot pasa por el mismo pipeline.
+# No reemplaza el control de SCA (scripts/sca.sh): cada PR de Dependabot pasa por el mismo pipeline
+# y, como cualquier otro, necesita la aprobación de un integrante (ruleset proteger-main).
+#
+# Agrupado: un PR por área (app, backend, herramientas de desarrollo, imágenes, actions) en lugar
+# de uno por librería, para que cada semana haya pocos PR que revisar.
+# Versiones mayores ignoradas hasta después de la entrega (rompen la API o cambian el runtime):
+#   Node (imagen base) 22 → 26, Express 4 → 5, Expo / React Native / expo-router (van con el SDK de Expo).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -7,20 +13,54 @@ updates:
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
     groups:
-      backend-dev: { dependency-type: development }
+      backend:
+        dependency-type: production
+        update-types: [minor, patch]
+      backend-dev:
+        dependency-type: development
+        update-types: [minor, patch]
+      backend-seguridad:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      - dependency-name: express
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: npm
     directory: /app
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
-    # Las versiones de Expo y React Native van juntas: se actualizan con `npx expo install --fix`, no una por una.
+    groups:
+      app:
+        patterns: ["*"]
+        update-types: [minor, patch]
+      app-seguridad:
+        applies-to: security-updates
+        patterns: ["*"]
+    # Las versiones de Expo y React Native van juntas: se actualizan con `npx expo install --fix`
+    # al cambiar de SDK, no una por una.
     ignore:
       - dependency-name: "expo*"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "@expo/*"
+        update-types: ["version-update:semver-major"]
       - dependency-name: "react-native*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
   - package-ecosystem: docker
     directories: [/backend, /app]
     schedule: { interval: weekly }
+    groups:
+      imagenes-base:
+        patterns: ["*"]
+    # Node 22 es LTS y trae node:sqlite estable (engines >=22.13); un cambio de versión mayor se prueba aparte.
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
