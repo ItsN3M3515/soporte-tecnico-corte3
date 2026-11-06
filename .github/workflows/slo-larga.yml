@@ -1,7 +1,9 @@
 name: Prueba de carga larga
 
 # La prueba corta del SLO corre en cada despliegue (cd.yml). Esta es la larga: el escenario "pico"
-# del Corte 2 contra el entorno de pruebas. Corre a mano o los lunes a las 06:00 de Bogotá (11:00 UTC).
+# del Corte 2 contra el entorno de pruebas. Solo a mano (el enunciado admite manual o programada):
+# una ejecución programada que falla marca en rojo el último commit de main, y la carga larga
+# depende más de la red que de un cambio del código.
 on:
   workflow_dispatch:
     inputs:
@@ -10,8 +12,6 @@ on:
         type: choice
         options: [pico, baseline]
         default: pico
-  schedule:
-    - cron: '0 11 * * 1'
 
 permissions:
   contents: read
@@ -19,7 +19,8 @@ permissions:
 jobs:
   carga:
     name: Prueba de carga larga (${{ inputs.escenario || 'pico' }})
-    runs-on: ubuntu-latest
+    # Mismo lugar que la prueba corta de cd.yml: el runner del servidor contra la URL pública.
+    runs-on: [self-hosted, asistec]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
