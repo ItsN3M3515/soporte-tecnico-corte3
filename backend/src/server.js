@@ -14,9 +14,15 @@ const rutaBd = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'soport
 // eslint-disable-next-line security/detect-non-literal-fs-filename
 if (rutaBd !== ':memory:') fs.mkdirSync(path.dirname(rutaBd), { recursive: true });
 
+// Sin valor por defecto: un secreto de desarrollo escrito en el código terminaría en producción.
+if (!process.env.JWT_SECRET) {
+  console.error('Falta la variable JWT_SECRET (ver .env.example). El servidor no arranca sin ella.');
+  process.exit(1);
+}
+
 const contenedor = crearContenedor({
   rutaBd,
-  secretoJwt: process.env.JWT_SECRET || 'secreto-de-desarrollo',
+  secretoJwt: process.env.JWT_SECRET,
   minutosSinRespuesta: Number(process.env.MINUTOS_SIN_RESPUESTA || 5),
   minutosEnCola: Number(process.env.MINUTOS_EN_COLA || 10),
 });

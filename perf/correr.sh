@@ -6,6 +6,8 @@ set -euo pipefail
 PRUEBA=${1:?"Indique baseline, pico o estres"}
 RAIZ=$(cd "$(dirname "$0")/.." && pwd)
 BD=$(mktemp -d)/soporte.db
+# Secreto aleatorio por ejecución: el servidor no arranca sin JWT_SECRET
+JWT_SECRET=${JWT_SECRET:-$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")} \
 DB_PATH=$BD PORT=3000 node --disable-warning=ExperimentalWarning "$RAIZ/backend/src/server.js" > "$RAIZ/perf/resultados/$PRUEBA-servidor.log" 2>&1 &
 PID=$!
 trap 'kill $PID' EXIT

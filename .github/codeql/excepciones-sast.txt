@@ -1,0 +1,5 @@
+# Hallazgos de CodeQL ya tratados que el quality gate de SAST (scripts/umbral-sast.sh) no cuenta.
+# Cada línea debe tener su registro en docs/seguridad.md como "falso positivo" o "riesgo aceptado".
+# Una línea sin registro cuenta como un control desactivado.
+#
+# Formato: <regla> <archivo>    # <hallazgo en docs/seguridad.md>

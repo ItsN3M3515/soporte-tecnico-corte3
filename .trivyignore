@@ -1,0 +1,8 @@
+# Vulnerabilidades que Trivy no tiene en cuenta en los quality gates (scripts/sca.sh y scripts/escaneo-imagen.sh).
+# Solo se agrega un identificador si está registrado en docs/seguridad.md como "falso positivo" o
+# "riesgo aceptado", con su justificación. Una línea sin registro cuenta como un control desactivado.
+#
+# Formato: un identificador por línea, con el número del hallazgo como comentario. Ejemplo:
+# CVE-2026-00000    # H-0X en docs/seguridad.md
+CVE-2026-118664   # H-01 en docs/seguridad.md (riesgo aceptado: decode-uri-component 0.2.2, dependencia de expo-router en el navegador)
+CVE-2026-45822    # H-01 en docs/seguridad.md (mismo paquete y misma justificación)

@@ -16,7 +16,8 @@
     "test:reporte": "node --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js --config jest.reporte.config.js --coverage",
     "evidencia": "node scripts/generarEvidencia.js",
     "retos": "node scripts/retos.js",
-    "medir:cola": "node --disable-warning=ExperimentalWarning scripts/medirCola.js"
+    "medir:cola": "node --disable-warning=ExperimentalWarning scripts/medirCola.js",
+    "arquitectura": "depcruise src --config .dependency-cruiser.cjs --output-type err-long"
   },
   "author": "",
   "license": "MIT",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "dependency-cruiser": "18.7.2",
     "eslint": "^10.11.0",
     "eslint-plugin-jest": "^29.16.6",
     "eslint-plugin-security": "^4.0.1",

@@ -1,0 +1,13 @@
+# Configuración de CodeQL (job SAST de ci.yml).
+# Se analiza el código propio en JavaScript/TypeScript. Se excluye lo que no es código del sistema:
+# reportes generados, evidencias del Corte 2 y el código Java del Corte 1 (solo referencia histórica).
+name: asistec-codeql
+paths:
+  - backend/src
+  - app/src
+  - perf/scripts
+paths-ignore:
+  - '**/node_modules'
+  - docs
+  - perf/resultados
+  - corte1-java
