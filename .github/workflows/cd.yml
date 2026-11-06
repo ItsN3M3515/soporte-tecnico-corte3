@@ -12,7 +12,8 @@ name: CD
 # públicas, como lo haría un usuario. Un fallo en cualquier etapa deja el pipeline en rojo.
 #
 # Configuración en GitHub (ver docs/implementacion.md):
-#   Environments "pruebas" y "produccion", cada uno con el secreto JWT_SECRET.
+#   Environments "pruebas" y "produccion", cada uno con el secreto JWT_SECRET;
+#   "produccion" además con GRAFANA_ADMIN_PASSWORD.
 #   Variables del repositorio URL_PRUEBAS y URL_PRODUCCION (https://..., sin / al final).
 on:
   push:
@@ -212,6 +213,8 @@ jobs:
       - name: Escribir el .env del entorno desde GitHub Secrets
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # Producción con observabilidad: Prometheus + Grafana (solo en la tailnet del equipo)
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: scripts/escribir-env.sh produccion 8080 3000
       - name: Iniciar sesión en GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
