@@ -1,0 +1,11 @@
+# Bonificación Kubernetes. Todo AsisTec vive en su propio namespace.
+# Orden de aplicación: kubectl apply -f k8s/  (los prefijos numéricos fijan el orden)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: asistec
+  labels:
+    app.kubernetes.io/part-of: asistec
+    # Pod Security Standards: el namespace rechaza pods que pidan root, privilegios o capacidades
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

@@ -1,0 +1,61 @@
+# Web: la app Expo exportada + nginx (proxy de /api y /socket.io al Service "backend").
+# Sin estado, así que puede tener varias réplicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: asistec
+  labels: { app.kubernetes.io/name: web, app.kubernetes.io/part-of: asistec }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: web }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: web, app.kubernetes.io/part-of: asistec }
+    spec:
+      serviceAccountName: asistec-web
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101      # usuario "nginx" de nginx-unprivileged
+        runAsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: ghcr.io/itsn3m3515/asistec-web:sha-local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+          # readiness en "/" (solo nginx): el pod sirve la app aunque el backend se esté reiniciando.
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            # nginx necesita escribir su caché y su pid fuera de la raíz de solo lectura
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: asistec
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: web }
+  ports:
+    - { name: http, port: 8080, targetPort: http, nodePort: 30080 }

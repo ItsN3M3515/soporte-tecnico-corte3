@@ -1,0 +1,16 @@
+# RBAC mínimo. Ningún pod de AsisTec habla con la API de Kubernetes, así que cada uno usa su propia
+# ServiceAccount SIN permisos (sin Role ni RoleBinding) y sin token montado. Si alguien compromete
+# un contenedor, no obtiene una credencial para listar Secrets ni crear pods en el clúster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: asistec-backend
+  namespace: asistec
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: asistec-web
+  namespace: asistec
+automountServiceAccountToken: false
