@@ -1,25 +1,55 @@
 name: asistec
 
-# Levanta el backend de AsisTec con su base de datos (SQLite en un volumen).
-# Uso:  cp .env.example .env   y despues   docker compose up -d --build
-# La app Expo corre aparte (cd app && npx expo start) y apunta a http://localhost:3000
+# Sistema completo de AsisTec: backend (API + tiempo real + SQLite) y web (app + proxy).
+# Uso, desde cero:
+#   cp .env.example .env        (y cambie JWT_SECRET)
+#   docker compose up -d --build
+#   abrir http://localhost:8080  (usuarios de demostración en el README)
+#
+# En el servidor de despliegue se agrega deploy/docker-compose.prod.yml, que usa las
+# imágenes publicadas en GHCR en lugar de construirlas.
 
 services:
   backend:
     build: ./backend
-    image: asistec-backend:dev
-    ports:
-      - "3000:3000"
+    image: asistec-backend:local
     environment:
       PORT: "3000"
       DB_PATH: /data/soporte.db
-      # Obligatoria: sin ella Compose se detiene en lugar de arrancar con un secreto vacio
+      # Obligatoria: sin ella Compose se detiene en lugar de arrancar con un secreto vacío
       JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET (ver .env.example)}
       MINUTOS_SIN_RESPUESTA: ${MINUTOS_SIN_RESPUESTA:-5}
       MINUTOS_EN_COLA: ${MINUTOS_EN_COLA:-10}
       INTERVALO_ESCALACION_MS: ${INTERVALO_ESCALACION_MS:-30000}
     volumes:
       - datos-soporte:/data
+    # Solo en la máquina local (127.0.0.1): para la app en Expo Go y las pruebas de carga.
+    # Desde afuera se entra por el servicio web.
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-3000}:3000"
+    # El healthcheck está en el Dockerfile (GET /api/salud)
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  web:
+    build: ./app
+    image: asistec-web:local
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     restart: unless-stopped
 
 volumes:
