@@ -1,0 +1,26 @@
+# Dependabot mantiene las dependencias al día con pull requests semanales.
+# No reemplaza el control de SCA (scripts/sca.sh): cada PR de Dependabot pasa por el mismo pipeline.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      backend-dev: { dependency-type: development }
+  - package-ecosystem: npm
+    directory: /app
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    # Las versiones de Expo y React Native van juntas: se actualizan con `npx expo install --fix`, no una por una.
+    ignore:
+      - dependency-name: "expo*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-native*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: docker
+    directories: [/backend, /app]
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

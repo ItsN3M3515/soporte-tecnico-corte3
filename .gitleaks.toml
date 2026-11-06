@@ -1,0 +1,18 @@
+# Configuración de Gitleaks (scripts/secretos.sh): reglas por defecto de Gitleaks.
+# Si aparece un falso positivo, se agrega aquí un bloque [[allowlists]] con la ruta o la
+# expresión exacta, y se registra en docs/seguridad.md con su justificación.
+[extend]
+useDefault = true
+
+# H-02 en docs/seguridad.md (falso positivo): resúmenes de k6 del Corte 2. Contienen JWT de un
+# servidor local desechable, firmados con el secreto de desarrollo que ya se eliminó del código y
+# vencidos (8 h). Desde el Corte 3 los scripts de k6 quitan los tokens del resumen (handleSummary).
+[[allowlists]]
+description = "H-02: JWT vencidos en resúmenes históricos de k6 (Corte 2)"
+paths = ['''^perf/resultados/[a-z0-9-]+-resumen\.json$''']
+
+# H-03 en docs/seguridad.md (falso positivo): reporte HTML de Jest con JavaScript minificado
+# (dayjs: "Object.keys(e)..."); la regla generic-api-key confunde el código con una llave.
+[[allowlists]]
+description = "H-03: JavaScript minificado del reporte de pruebas"
+paths = ['''^docs/evidencias/reporte-pruebas\.html$''']

@@ -1,0 +1,330 @@
+name: CI
+
+# Integración continua: construcción, pruebas, reglas de arquitectura y los cuatro controles de seguridad.
+# Cada job es un quality gate y aparece como un check en el pull request: si uno falla, el pipeline
+# queda en rojo y la regla de protección de main no deja fusionar.
+#
+# Cuándo corre:
+#   - en cada push a una rama distinta de main y en cada pull request hacia main;
+#   - en main lo ejecuta cd.yml como primera etapa (workflow_call), antes de publicar y desplegar;
+#   - a mano desde la pestaña Actions (workflow_dispatch).
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+# Mínimo privilegio: por defecto los jobs solo pueden leer el código.
+permissions:
+  contents: read
+
+# Un push nuevo a la misma rama cancela la ejecución anterior (ahorra minutos y da el resultado antes).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  NODE_VERSION: '22.22'
+  # Mismo flag que usan los scripts de npm del backend
+  NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+jobs:
+  construccion:
+    name: Construcción
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Instalar Node.js (con caché de dependencias npm)
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            app/package-lock.json
+
+      - name: Backend - resolver dependencias (npm ci falla si package-lock.json no coincide)
+        working-directory: backend
+        run: npm ci
+
+      - name: Backend - análisis estático de calidad (ESLint)
+        working-directory: backend
+        run: npm run lint
+
+      - name: Backend - el servidor carga todos sus módulos
+        working-directory: backend
+        run: node -e "require('./src/config/contenedor'); require('./src/adapters/in/http/app'); require('./src/adapters/in/realtime/servidorSockets')"
+
+      - name: App - resolver dependencias
+        working-directory: app
+        run: npm ci
+
+      - name: App - compilar TypeScript (sin emitir)
+        working-directory: app
+        run: npx tsc --noEmit
+
+  pruebas-unitarias:
+    name: Pruebas unitarias y cobertura del dominio
+    needs: construccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Resolver dependencias
+        working-directory: backend
+        run: npm ci
+
+      # El umbral está en backend/package.json (jest.coverageThreshold): líneas >= 85 % y ramas >= 75 %
+      # sobre src/domain y src/application. Si no se cumple, Jest termina con error.
+      - name: Pruebas unitarias con umbral de cobertura
+        working-directory: backend
+        run: npx jest tests/unit --ci --coverage --reporters=default --reporters=jest-html-reporters
+
+      - name: Resumen de cobertura en la ejecución
+        if: always()
+        working-directory: backend
+        run: |
+          [ -f coverage/coverage-summary.json ] || exit 0
+          node -e "
+            const t = require('./coverage/coverage-summary.json').total;
+            const fila = (k) => '| ' + k + ' | ' + t[k].pct + ' % | ' + t[k].covered + '/' + t[k].total + ' |';
+            console.log(['### Cobertura del núcleo (domain + application)', '', '| Métrica | % | Cubiertas |', '|---|---|---|',
+              fila('lines'), fila('branches'), fila('functions'), '', 'Umbral: líneas >= 85 %, ramas >= 75 % (el enunciado pide >= 70 %).'].join('\n'));
+          " >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar reportes de pruebas unitarias y cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-pruebas-unitarias
+          path: |
+            backend/coverage/
+            backend/jest_html_reporters.html
+            backend/jest_html_reporters/
+          if-no-files-found: ignore
+
+  pruebas-integracion:
+    name: Pruebas de integración
+    needs: construccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Resolver dependencias
+        working-directory: backend
+        run: npm ci
+
+      # Fronteras del hexágono con infraestructura real: HTTP (Supertest) → casos de uso → SQLite en
+      # archivo, Socket.IO con clientes reales y lectura de las imágenes PNG de los QR impresos.
+      - name: Pruebas de integración y de sistema
+        working-directory: backend
+        run: npx jest tests/integration --ci --reporters=default --reporters=jest-html-reporters
+
+      - name: Publicar reporte de pruebas de integración
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-pruebas-integracion
+          path: |
+            backend/jest_html_reporters.html
+            backend/jest_html_reporters/
+          if-no-files-found: ignore
+
+  arquitectura:
+    name: Reglas de arquitectura
+    needs: construccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Resolver dependencias
+        working-directory: backend
+        run: npm ci
+
+      # Reglas del ADR-001 en backend/.dependency-cruiser.cjs: núcleo sin infraestructura, dominio sin
+      # casos de uso, adaptadores de entrada sin adaptadores de salida, solo la raíz de composición
+      # conecta adaptadores y sin ciclos. Cualquier violación termina con error.
+      - name: Reglas de dependencias del estilo hexagonal (dependency-cruiser)
+        working-directory: backend
+        run: |
+          mkdir -p ../reportes
+          npm run --silent arquitectura | tee ../reportes/arquitectura.txt
+
+      - name: Regla de dependencias como prueba de Jest
+        working-directory: backend
+        run: npx jest tests/unit/arquitectura.test.js --ci
+
+      - name: Publicar reporte de arquitectura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-arquitectura
+          path: reportes/arquitectura.txt
+          if-no-files-found: ignore
+
+  sast:
+    name: SAST (CodeQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write   # subir los resultados a la pestaña Security > Code scanning
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # security-extended: más consultas que el conjunto por defecto (umbral endurecido, ver ADR de seguridad).
+      - name: Iniciar CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config-file: .github/codeql/codeql-config.yml
+
+      - name: Analizar con CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+          output: reportes/codeql
+
+      # CodeQL publica los hallazgos pero no detiene el pipeline: este paso aplica el umbral.
+      - name: Quality gate de SAST (ningún hallazgo alto o crítico sin tratar)
+        run: scripts/umbral-sast.sh reportes/codeql/*.sarif
+
+      - name: Publicar reporte de CodeQL
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-sast
+          path: reportes/codeql/
+          if-no-files-found: ignore
+
+  sca:
+    name: SCA (dependencias con Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write   # comentario de dependency-review en el PR
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Quality gate de SCA (ninguna vulnerabilidad alta o crítica con corrección)
+        run: scripts/sca.sh
+
+      # En un pull request, además, falla si el cambio AGREGA una dependencia vulnerable (alta o más).
+      - name: Revisión de las dependencias que agrega el pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+      - name: Publicar reporte de dependencias
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-sca
+          path: reportes/trivy-dependencias.json
+          if-no-files-found: ignore
+
+  secretos:
+    name: Secretos (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # fetch-depth: 0 descarga todo el historial: Gitleaks revisa cada commit, no solo los archivos actuales.
+      - name: Descargar el código con todo el historial
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Quality gate de secretos (cero secretos, incluido el historial)
+        run: scripts/secretos.sh
+
+      - name: Publicar reporte de secretos
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-secretos
+          path: reportes/gitleaks.json
+          if-no-files-found: ignore
+
+  imagen:
+    name: Imágenes Docker y escaneo (Trivy)
+    needs: construccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validar docker-compose.yml con las variables de .env.example
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+
+      - name: Preparar Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Caché de capas en GitHub Actions: si no cambian package-lock.json ni el código, no se reconstruye.
+      - name: Construir la imagen del backend
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          tags: asistec-backend:ci
+          load: true
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Construir la imagen web
+        uses: docker/build-push-action@v7
+        with:
+          context: app
+          tags: asistec-web:ci
+          load: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Quality gate de la imagen del backend (ninguna alta o crítica con corrección)
+        run: scripts/escaneo-imagen.sh asistec-backend:ci backend
+
+      - name: Quality gate de la imagen web (ninguna alta o crítica con corrección)
+        run: scripts/escaneo-imagen.sh asistec-web:ci web
+
+      # El SBOM no detiene el pipeline: deja registro de qué componentes quedaron dentro de cada imagen.
+      - name: SBOM de las imágenes (CycloneDX)
+        run: |
+          scripts/sbom.sh asistec-backend:ci backend
+          scripts/sbom.sh asistec-web:ci web
+
+      - name: Publicar reportes y SBOM de las imágenes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-imagenes
+          path: |
+            reportes/trivy-backend.json
+            reportes/trivy-web.json
+            reportes/sbom-*.cdx.json
+          if-no-files-found: ignore
