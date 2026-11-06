@@ -9,7 +9,7 @@
  */
 // Librerías de npm (se resuelven a node_modules/<paquete>/) y módulos de Node con E/S.
 const INFRAESTRUCTURA =
-  'node_modules/(express|socket\\.io|socket\\.io-client|jsonwebtoken|cors|qrcode)/' +
+  'node_modules/(express|socket\\.io|socket\\.io-client|jsonwebtoken|cors|qrcode|prom-client)/' +
   '|^(node:)?(sqlite|http|https|net|fs|child_process)$';
 
 module.exports = {

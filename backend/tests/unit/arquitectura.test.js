@@ -7,7 +7,7 @@ const path = require('node:path');
  * de infraestructura. Si alguien rompe la regla, esta prueba falla.
  */
 const SRC = path.join(__dirname, '..', '..', 'src');
-const PROHIBIDOS_EN_NUCLEO = ['express', 'socket.io', 'node:sqlite', 'jsonwebtoken', 'cors', 'qrcode', '/adapters/', '/config/'];
+const PROHIBIDOS_EN_NUCLEO = ['express', 'socket.io', 'node:sqlite', 'jsonwebtoken', 'cors', 'qrcode', 'prom-client', '/adapters/', '/config/'];
 
 function archivosJs(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

@@ -1,0 +1,14 @@
+# Prometheus de AsisTec (perfil "observabilidad" de docker-compose.yml).
+# Lee las métricas del backend cada 15 s. /metrics solo se alcanza dentro de la red de Compose.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alertas.yml
+
+scrape_configs:
+  - job_name: asistec-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['backend:3000']

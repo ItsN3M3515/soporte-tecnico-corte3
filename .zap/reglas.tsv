@@ -1,0 +1,18 @@
+# Reglas de OWASP ZAP baseline (job DAST de cd.yml). Formato: <id>	<IGNORE|WARN|FAIL>	(<comentario>)
+# Con "-I" en cmd_options, solo las reglas FAIL detienen el pipeline; las WARN quedan en el reporte
+# (artefacto reporte-dast) y se registran en docs/seguridad.md como cualquier otro hallazgo.
+# Una regla IGNORE sin registro en docs/seguridad.md cuenta como un control desactivado.
+#
+# FAIL: fallas que exponen datos o permiten ataques directos.
+10010	FAIL	(Cookie sin HttpOnly)
+10011	FAIL	(Cookie sin Secure)
+10020	FAIL	(Falta protección contra clickjacking: X-Frame-Options / frame-ancestors)
+10021	FAIL	(Falta X-Content-Type-Options)
+10023	FAIL	(Divulgación de información en mensajes de depuración)
+10024	FAIL	(Información sensible en la URL)
+10027	FAIL	(Comentarios sospechosos que divulgan información)
+10035	FAIL	(Falta Strict-Transport-Security)
+10036	FAIL	(El encabezado Server divulga la versión)
+10037	FAIL	(X-Powered-By divulga la tecnología del servidor)
+10062	FAIL	(Divulgación de datos personales)
+90022	FAIL	(Divulgación de errores de la aplicación)

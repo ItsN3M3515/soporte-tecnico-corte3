@@ -52,5 +52,65 @@ services:
     cap_drop: [ALL]
     restart: unless-stopped
 
+  # --- Observabilidad (opcional): docker compose --profile observabilidad up -d ---
+  # Prometheus lee GET /metrics del backend; Grafana muestra el tablero del SLO.
+  # Ninguno se publica en internet: Grafana escucha solo en 127.0.0.1 (en el servidor se
+  # abre a la red privada del equipo con "tailscale serve", ver docs/implementacion.md).
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    profiles: [observabilidad]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./observabilidad/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observabilidad/prometheus/alertas.yml:/etc/prometheus/alertas.yml:ro
+      - datos-prometheus:/prometheus
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    profiles: [observabilidad]
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-cambie-esta-clave}
+      # Solo lectura sin iniciar sesión, para mirar el tablero en la presentación
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/asistec-slo.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observabilidad/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observabilidad/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - datos-grafana:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
 volumes:
   datos-soporte:
+  datos-prometheus:
+  datos-grafana:

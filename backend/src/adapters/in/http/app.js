@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { crearMetricas } = require('./metricas');
 const { CodigoQR } = require('../../../domain/modelo/CodigoQR');
 const { problemasDe } = require('../../../domain/modelo/problemasEquipo');
 const { Rol } = require('../../../domain/modelo/enums');
@@ -19,8 +20,15 @@ const HTTP_POR_ERROR = {
 
 function crearApp(c) {
   const app = express();
+  // No anunciar la tecnología del servidor (hallazgo de ZAP 10037)
+  app.disable('x-powered-by');
   app.use(cors());
   app.use(express.json({ limit: '20kb' }));
+
+  // --- Observabilidad: latencia, errores y throughput para Prometheus (ver metricas.js) ---
+  const metricas = crearMetricas(c);
+  app.use(metricas.medir);
+  app.get('/metrics', metricas.exponer);
 
   // --- Autenticación y roles ---
   const autenticado = (req, res, next) => {
