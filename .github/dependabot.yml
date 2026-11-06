@@ -5,7 +5,7 @@
 # Agrupado: un PR por área (app, backend, herramientas de desarrollo, imágenes, actions) en lugar
 # de uno por librería, para que cada semana haya pocos PR que revisar.
 # Versiones mayores ignoradas hasta después de la entrega (rompen la API o cambian el runtime):
-#   Node (imagen base) 22 → 26, Express 4 → 5, Expo / React Native / expo-router (van con el SDK de Expo).
+#   Node (imagen base) 22 → 26 y Express 4 → 5. Expo, React y React Native: nunca por Dependabot (ver app).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -37,15 +37,19 @@ updates:
       app-seguridad:
         applies-to: security-updates
         patterns: ["*"]
-    # Las versiones de Expo y React Native van juntas: se actualizan con `npx expo install --fix`
-    # al cambiar de SDK, no una por una.
+    # Expo fija la versión exacta de React, React Native y sus módulos para cada SDK. Dependabot no
+    # lo sabe: el 2026-11-06 propuso React 19.3.1 y reanimated 4.5.5 (PR #21) y `expo install --check`
+    # los marcó como incompatibles con el SDK 57. Esos paquetes se actualizan solo con
+    # `npx expo install --fix` (y el job Construcción falla si quedan desalineados).
     ignore:
-      - dependency-name: "expo*"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
       - dependency-name: "@expo/*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-native*"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "@types/react"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-*"
 
   - package-ecosystem: docker
     directories: [/backend, /app]

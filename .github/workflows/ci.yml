@@ -68,6 +68,12 @@ jobs:
         working-directory: app
         run: npx tsc --noEmit
 
+      # Expo fija versiones exactas de React, React Native y sus módulos por SDK. Si una actualización
+      # (por ejemplo de Dependabot) las desalinea, la web compila pero la app puede fallar en el celular.
+      - name: App - dependencias compatibles con el SDK de Expo
+        working-directory: app
+        run: npx expo install --check
+
   pruebas-unitarias:
     name: Pruebas unitarias y cobertura del dominio
     needs: construccion
