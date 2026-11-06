@@ -1,0 +1,92 @@
+name: Kubernetes
+
+# Bonificación Kubernetes: despliega los manifiestos de k8s/ en un clúster kind dentro del runner
+# y comprueba que el sistema funciona y que las políticas de seguridad se cumplen:
+#   1. el namespace (Pod Security "restricted") acepta los pods: sin root, sin capacidades;
+#   2. los Deployments quedan listos (readiness) dentro del tiempo límite;
+#   3. la prueba de humo completa pasa a través del Service web;
+#   4. la NetworkPolicy funciona: un pod ajeno NO llega al backend, y nginx sí.
+# Corre cuando cambian k8s/, los Dockerfile, la configuración de nginx o este archivo, y a mano.
+on:
+  push:
+    paths: ['k8s/**', 'backend/Dockerfile', 'app/Dockerfile', 'app/docker/**', '.github/workflows/k8s.yml']
+  pull_request:
+    branches: [main]
+    paths: ['k8s/**', 'backend/Dockerfile', 'app/Dockerfile', 'app/docker/**', '.github/workflows/k8s.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k8s-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kind:
+    name: Despliegue en kind y verificación
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ETIQUETA: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Construir las imágenes (caché de CI)
+        run: |
+          docker buildx build --load --cache-from type=gha,scope=backend -t "ghcr.io/itsn3m3515/asistec-backend:$ETIQUETA" backend
+          docker buildx build --load --cache-from type=gha,scope=web -t "ghcr.io/itsn3m3515/asistec-web:$ETIQUETA" app
+
+      - name: Crear el clúster kind
+        uses: helm/kind-action@v1.15.2
+        with:
+          cluster_name: asistec
+
+      - name: Cargar las imágenes en el clúster
+        run: |
+          kind load docker-image --name asistec "ghcr.io/itsn3m3515/asistec-backend:$ETIQUETA"
+          kind load docker-image --name asistec "ghcr.io/itsn3m3515/asistec-web:$ETIQUETA"
+
+      - name: Aplicar los manifiestos
+        run: |
+          kubectl apply -f k8s/00-namespace.yaml
+          # Secret con valor aleatorio: nunca se guarda en el repositorio (ver k8s/plantillas/secret.yaml)
+          kubectl -n asistec create secret generic asistec-secretos --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
+          kubectl apply -f k8s/
+          kubectl -n asistec set image deployment/backend backend="ghcr.io/itsn3m3515/asistec-backend:$ETIQUETA"
+          kubectl -n asistec set image deployment/web web="ghcr.io/itsn3m3515/asistec-web:$ETIQUETA"
+
+      - name: Esperar a que los Deployments estén listos (probes de readiness)
+        run: |
+          kubectl -n asistec rollout status deployment/backend --timeout=180s
+          kubectl -n asistec rollout status deployment/web --timeout=120s
+          kubectl -n asistec get pods,svc,pvc,networkpolicy -o wide
+
+      - name: Prueba de humo a través del Service web
+        run: |
+          kubectl -n asistec port-forward svc/web 8080:8080 > /tmp/port-forward.log 2>&1 &
+          sleep 3
+          scripts/smoke-test.sh http://localhost:8080 completo
+
+      - name: La NetworkPolicy bloquea el acceso directo al backend
+        run: |
+          # Un pod sin la etiqueta "web" intenta llegar al backend: debe fallar por tiempo de espera.
+          if kubectl -n asistec run intruso --rm -i --restart=Never --image=busybox:1.37 \
+               --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"intruso","image":"busybox:1.37","command":["wget","-T","5","-qO-","http://backend:3000/api/salud"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' ; then
+            echo "FALLA: un pod ajeno llegó al backend; la NetworkPolicy no se está aplicando" >&2
+            exit 1
+          fi
+          echo "OK: el pod ajeno no llegó al backend"
+          # Control: desde un pod web, el backend sí responde.
+          kubectl -n asistec exec deploy/web -- wget -T 5 -qO- http://backend:3000/api/salud
+          echo
+          echo "OK: nginx (pod web) sí llega al backend"
+
+      - name: Estado del clúster si algo falló
+        if: failure()
+        run: |
+          kubectl -n asistec get all,events --sort-by=.lastTimestamp || true
+          kubectl -n asistec logs deploy/backend --tail=100 || true
+          kubectl -n asistec logs deploy/web --tail=50 || true

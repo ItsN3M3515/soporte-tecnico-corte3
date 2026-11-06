@@ -1,0 +1,12 @@
+# Configuración no sensible del backend (las mismas variables de .env.example).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: asistec-config
+  namespace: asistec
+data:
+  PORT: "3000"
+  DB_PATH: /data/soporte.db
+  MINUTOS_SIN_RESPUESTA: "5"
+  MINUTOS_EN_COLA: "10"
+  INTERVALO_ESCALACION_MS: "30000"

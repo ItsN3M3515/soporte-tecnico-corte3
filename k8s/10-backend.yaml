@@ -1,0 +1,88 @@
+# Backend: API + tiempo real + SQLite.
+# Una sola réplica y estrategia Recreate: SQLite es un archivo en un volumen ReadWriteOnce y no
+# admite dos procesos escribiendo (límite conocido; escalar exige PostgreSQL, ver docs/evolucion.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: datos-soporte
+  namespace: asistec
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: asistec
+  labels: { app.kubernetes.io/name: backend, app.kubernetes.io/part-of: asistec }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: backend }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: backend, app.kubernetes.io/part-of: asistec }
+    spec:
+      serviceAccountName: asistec-backend
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000     # usuario "node" de la imagen
+        runAsGroup: 1000
+        fsGroup: 1000       # el volumen queda escribible por ese usuario
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          # La etiqueta la reemplaza el pipeline (kubectl set image) por sha-<commit> o vX.Y.Z
+          image: ghcr.io/itsn3m3515/asistec-backend:sha-local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 3000 }
+          envFrom:
+            - configMapRef: { name: asistec-config }
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: asistec-secretos, key: JWT_SECRET }
+          # readiness: recibe tráfico solo cuando la API responde.
+          # liveness: si deja de responder 3 veces seguidas, Kubernetes reinicia el contenedor.
+          readinessProbe:
+            httpGet: { path: /api/salud, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /api/salud, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          # Medido en la prueba de carga: ~60 MB en reposo. El límite deja margen para el pico.
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: datos, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: datos
+          persistentVolumeClaim: { claimName: datos-soporte }
+        - name: tmp
+          emptyDir: {}
+---
+# El nombre "backend" es el que usa nginx (proxy_pass http://backend:3000), igual que en Compose.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: asistec
+spec:
+  selector: { app.kubernetes.io/name: backend }
+  ports:
+    - { name: http, port: 3000, targetPort: http }
