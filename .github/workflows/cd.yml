@@ -7,9 +7,10 @@ name: CD
 #              ─► desplegar en PRODUCCIÓN ─► prueba de humo (solo lectura)
 #                                          └─ si falla: reversión automática a la versión anterior
 #
-# Los despliegues corren en el runner autohospedado (VM "asistec" en el servidor del equipo, etiqueta
-# "asistec") con Docker Compose. Las verificaciones corren en runners de GitHub contra las URL
-# públicas, como lo haría un usuario. Un fallo en cualquier etapa deja el pipeline en rojo.
+# Los despliegues y la prueba de carga corren en el runner autohospedado (VM "asistec" en el servidor
+# del equipo, etiqueta "asistec") con Docker Compose. La prueba de humo y ZAP corren en runners de
+# GitHub contra las URL públicas, como lo haría un usuario. Un fallo en cualquier etapa deja el
+# pipeline en rojo.
 #
 # Configuración en GitHub (ver docs/implementacion.md):
 #   Environments "pruebas" y "produccion", cada uno con el secreto JWT_SECRET;
@@ -155,10 +156,16 @@ jobs:
       - name: Flujo principal completo
         run: scripts/smoke-test.sh "${{ vars.URL_PRUEBAS }}" completo
 
+  # La prueba de carga corre en el runner del servidor, contra la URL de pruebas. Dentro de la VM ese
+  # nombre resuelve a la propia VM, así que mide el servicio desplegado completo (TLS de Tailscale →
+  # nginx → backend → SQLite) sin el tramo público de Funnel. Desde un runner de GitHub el p95 incluía
+  # el viaje EE. UU. → Colombia por Internet, que varía entre ejecuciones (cola: 129 ms en una, 234 ms
+  # en otra con el mismo backend) y podía dejar main en rojo sin que el sistema empeorara. La
+  # prueba de humo y ZAP siguen entrando desde Internet (ver docs/devops.md).
   slo:
     name: Prueba de carga del SLO (pruebas)
     needs: humo-pruebas
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, asistec]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
