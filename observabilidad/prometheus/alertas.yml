@@ -1,0 +1,30 @@
+# Alertas del SLO del Corte 2 sobre el tráfico real (las mismas cifras que los thresholds de k6).
+# Se ven en Prometheus (Alerts) y en el tablero de Grafana. Ventana de 5 minutos para no alertar
+# por un pico aislado.
+groups:
+  - name: slo-asistec
+    rules:
+      - alert: SLOCrearSolicitudLento
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{metodo="POST",ruta="/api/solicitudes"}[5m]))) > 0.5
+        for: 5m
+        labels: { severidad: alta }
+        annotations:
+          resumen: "p95 de crear solicitud por encima de 500 ms"
+      - alert: SLOConsultarColaLento
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{metodo="GET",ruta="/api/sedes/:sede/cola"}[5m]))) > 0.3
+        for: 5m
+        labels: { severidad: alta }
+        annotations:
+          resumen: "p95 de consultar la cola por encima de 300 ms"
+      - alert: SLOTasaDeErrores
+        expr: sum(rate(http_request_duration_seconds_count{codigo=~"5.."}[5m])) / sum(rate(http_request_duration_seconds_count[5m])) > 0.01
+        for: 5m
+        labels: { severidad: alta }
+        annotations:
+          resumen: "Más del 1 % de las peticiones terminan en error del servidor (5xx)"
+      - alert: BackendCaido
+        expr: up{job="asistec-backend"} == 0
+        for: 1m
+        labels: { severidad: critica }
+        annotations:
+          resumen: "Prometheus no puede leer las métricas del backend"

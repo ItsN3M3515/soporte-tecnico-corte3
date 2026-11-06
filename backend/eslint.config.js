@@ -19,7 +19,7 @@ const PROHIBIDOS_EN_NUCLEO = {
   patterns: [
     { group: ['**/adapters/**', '**/config/**'], message: 'Regla hexagonal: el núcleo no puede depender de adaptadores ni de la configuración.' },
   ],
-  paths: ['express', 'socket.io', 'node:sqlite', 'jsonwebtoken', 'cors', 'qrcode'].map((name) => ({
+  paths: ['express', 'socket.io', 'node:sqlite', 'jsonwebtoken', 'cors', 'qrcode', 'prom-client'].map((name) => ({
     name,
     message: 'Regla hexagonal: el núcleo no puede usar librerías de infraestructura. Use un puerto.',
   })),
