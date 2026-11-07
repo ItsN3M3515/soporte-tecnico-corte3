@@ -198,6 +198,8 @@ class RepositorioUsuariosSqlite {
     this.porUsuario = db.prepare('SELECT usuario, nombre, rol, sede, tecnico_id AS tecnicoId, correo, hash_clave AS hashClave FROM usuarios WHERE usuario = ?');
     this.insertar = db.prepare(`INSERT OR REPLACE INTO usuarios (usuario, nombre, rol, sede, tecnico_id, correo, hash_clave)
                                 VALUES (@usuario, @nombre, @rol, @sede, @tecnicoId, @correo, @hashClave)`);
+    this.borrar = db.prepare('DELETE FROM usuarios WHERE usuario = ?');
+    this.todos = db.prepare('SELECT usuario, nombre, rol, sede, tecnico_id AS tecnicoId, correo FROM usuarios ORDER BY rol, usuario');
   }
 
   buscarPorUsuario(usuario) {
@@ -208,6 +210,14 @@ class RepositorioUsuariosSqlite {
     this.insertar.run({
       usuario: u.usuario, nombre: u.nombre, rol: u.rol, sede: u.sede ?? null, tecnicoId: u.tecnicoId ?? null, correo: u.correo ?? null, hashClave: u.hashClave,
     });
+  }
+
+  eliminar(usuario) {
+    return this.borrar.run(usuario).changes > 0;
+  }
+
+  listar() {
+    return this.todos.all().map((u) => ({ ...u }));
   }
 }
 
