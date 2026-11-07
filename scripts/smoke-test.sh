@@ -9,7 +9,11 @@ set -euo pipefail
 URL="${1:?Uso: scripts/smoke-test.sh <url-base> [completo|lectura]}"; URL="${URL%/}"
 MODO="${2:-completo}"
 QR="SOPORTE:v1:CAM-K-101-VB01"   # video beam del salón 101, Edificio K (datos de demostración)
-CURL=(curl --silent --show-error --max-time 15)
+# Reintentos ante errores de conexión (TLS o red cortada en el túnel de Tailscale Funnel) y ante
+# 502/503/504 transitorios: el 2026-11-06 un SSL_ERROR_SYSCALL aislado en el paso 5 hizo fallar la
+# prueba y revirtió producción sin que la aplicación fallara. Sin --fail, una respuesta HTTP como
+# 400, 401 o 403 no es un error de curl: NO se reintenta y el paso la evalúa de inmediato.
+CURL=(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 3 --retry-all-errors)
 
 paso() { printf '  %-68s' "$1"; }
 ok()   { echo "OK${1:+ ($1)}"; }
