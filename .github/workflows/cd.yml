@@ -154,6 +154,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Flujo principal completo
+        env:
+          HUMO_QR: ${{ vars.HUMO_QR }}
         run: scripts/smoke-test.sh "${{ vars.URL_PRUEBAS }}" completo
 
   # La prueba de carga corre en el runner del servidor, contra la URL de pruebas. Dentro de la VM ese
@@ -239,6 +241,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Flujo principal (solo lectura, no crea datos en producción)
+        # Cuenta propia de la prueba si se retiraron las de demostración (vacías = docente de demostración)
+        env:
+          HUMO_USUARIO: ${{ vars.HUMO_USUARIO }}
+          HUMO_CLAVE: ${{ secrets.HUMO_CLAVE }}
+          HUMO_QR: ${{ vars.HUMO_QR }}
         run: scripts/smoke-test.sh "${{ vars.URL_PRODUCCION }}" lectura
 
   revertir-produccion:
