@@ -54,6 +54,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Flujo principal
+        env:
+          HUMO_USUARIO: ${{ inputs.entorno == 'produccion' && vars.HUMO_USUARIO || '' }}
+          HUMO_CLAVE: ${{ inputs.entorno == 'produccion' && secrets.HUMO_CLAVE || '' }}
+          HUMO_QR: ${{ vars.HUMO_QR }}
         run: |
           if [[ "${{ inputs.entorno }}" == "produccion" ]]; then
             scripts/smoke-test.sh "${{ vars.URL_PRODUCCION }}" lectura

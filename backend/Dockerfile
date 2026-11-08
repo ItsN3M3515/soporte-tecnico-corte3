@@ -16,9 +16,12 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # Etapa 2: imagen final, solo con el runtime, las dependencias y el codigo
 FROM node:22.22-bookworm-slim
+# NODE_OPTIONS: sin el aviso "SQLite is experimental" también en los comandos de consola
+# (docker compose exec backend node src/adapters/in/cli/usuarios.js ...)
 ENV NODE_ENV=production \
     PORT=3000 \
-    DB_PATH=/data/soporte.db
+    DB_PATH=/data/soporte.db \
+    NODE_OPTIONS=--disable-warning=ExperimentalWarning
 WORKDIR /app
 
 # Parches de seguridad de Debian publicados después de la imagen base

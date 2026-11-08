@@ -18,6 +18,7 @@ const { AtenderSolicitud } = require('../application/AtenderSolicitud');
 const { EscalarVencidas } = require('../application/EscalarVencidas');
 const { Consultas } = require('../application/Consultas');
 const { Autenticar } = require('../application/Autenticar');
+const { GestionarUsuarios } = require('../application/GestionarUsuarios');
 const { abrirBaseDatos } = require('../adapters/out/persistence/sqlite/baseDatos');
 const repos = require('../adapters/out/persistence/sqlite/repositorios');
 const { PublicadorSocketIO } = require('../adapters/out/realtime/PublicadorSocketIO');
@@ -101,6 +102,7 @@ function crearContenedor({
     escalarVencidas: new EscalarVencidas({ ...base, cadena, minutosSinRespuesta, minutosEnCola }),
     consultas: new Consultas(base),
     autenticar: new Autenticar({ repoUsuarios, credenciales }),
+    gestionarUsuarios: new GestionarUsuarios({ repoUsuarios, credenciales, repoEquipos }),
   };
 }
 

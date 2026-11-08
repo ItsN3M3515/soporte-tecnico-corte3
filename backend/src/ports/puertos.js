@@ -51,8 +51,14 @@ const PUERTOS = {
    */
   RepositorioNotificaciones: ['guardar', 'listarPorUsuario', 'marcarLeidas'],
 
-  /** RepositorioUsuarios — buscarPorUsuario(usuario): {usuario, nombre, rol, sede, tecnicoId, hashClave} | null */
-  RepositorioUsuarios: ['buscarPorUsuario'],
+  /**
+   * RepositorioUsuarios
+   *  buscarPorUsuario(usuario): {usuario, nombre, rol, sede, tecnicoId, correo, hashClave} | null
+   *  guardar(usuario): void                 (crea o reemplaza)
+   *  eliminar(usuario): boolean             (true si existía)
+   *  listar(): {usuario, nombre, rol, sede, tecnicoId, correo}[]   (sin el hash de la clave)
+   */
+  RepositorioUsuarios: ['buscarPorUsuario', 'guardar', 'eliminar', 'listar'],
 
   /** UnidadDeTrabajo — ejecutar(fn): resultado de fn, todo o nada (transacción) */
   UnidadDeTrabajo: ['ejecutar'],
@@ -67,8 +73,11 @@ const PUERTOS = {
   /** Reloj — ahora(): number (ms). Se inyecta para poder probar el aging y la escalación sin esperar. */
   Reloj: ['ahora'],
 
-  /** ServicioCredenciales — verificarClave(clave, hash): boolean ; emitirToken(usuario): string ; leerToken(token): usuario */
-  ServicioCredenciales: ['verificarClave', 'emitirToken', 'leerToken'],
+  /**
+   * ServicioCredenciales — verificarClave(clave, hash): boolean ; hashearClave(clave): string ;
+   * emitirToken(usuario): string ; leerToken(token): usuario
+   */
+  ServicioCredenciales: ['verificarClave', 'hashearClave', 'emitirToken', 'leerToken'],
 };
 
 function verificarPuerto(nombrePuerto, adaptador) {
