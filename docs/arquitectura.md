@@ -1,6 +1,8 @@
 # Documento de arquitectura — Sistema de solicitud de soporte técnico en aulas
 
-**Diseño y Arquitectura de Software (DYAS) · Corte 2**
+**Diseño y Arquitectura de Software (DYAS) · Corte 2, actualizado en el Corte 3**
+
+> **Corte 3:** la vista de despliegue está en la [sección 8](#8-vista-de-despliegue-corte-3). El pipeline está en [devops.md](devops.md), la seguridad en [seguridad.md](seguridad.md), los ADR nuevos son el [008](adr/ADR-008-estrategia-de-despliegue.md) y el [009](adr/ADR-009-seguridad-del-pipeline.md), y cómo se resolvieron los pendientes de la sección 7 está en [evolucion.md](evolucion.md). El estilo hexagonal no cambió.
 María José Almanza Caviedes · Pablo Andrés Tamayo González · Amy Jeanine Nossa Ramírez · Simón Martínez García
 
 ---
@@ -138,6 +140,7 @@ flowchart LR
       HTTP["http/app.js<br/>Express + roles"]
       SOCKIN["realtime/servidorSockets.js<br/>autentica y asigna salas"]
       SCHED["scheduler/ProgramadorEscalacion.js"]
+      CLI["cli/usuarios.js<br/>(Corte 3: cuentas desde la consola)"]
     end
 
     subgraph APP["APLICACIÓN<br/>src/application"]
@@ -148,6 +151,7 @@ flowchart LR
       CU5["Autenticar"]
       CU6["AsignarManualmente"]
       CU7["ActivarProgramadas"]
+      CU8["GestionarUsuarios<br/>(Corte 3)"]
       NOT["NotificacionesDocente<br/>Decorator del publicador"]
     end
 
@@ -182,6 +186,7 @@ flowchart LR
     HTTP --> CU1 & CU2 & CU4 & CU5 & CU6
     HTTP --> NOT
     SCHED --> CU3 & CU7
+    CLI --> CU8
     CU1 & CU2 & CU3 & CU6 & CU7 -- "publica" --> NOT
     CU1 --> QRV & FAB & GA
     CU2 --> GA & TEC
@@ -207,6 +212,7 @@ flowchart LR
 | API REST | `backend/src/adapters/in/http/app.js` |
 | Servidor de eventos | `backend/src/adapters/in/realtime/servidorSockets.js` + `adapters/out/realtime/PublicadorSocketIO.js` |
 | Programador (agenda y escalación) | `backend/src/adapters/in/scheduler/ProgramadorEscalacion.js` |
+| Consola de usuarios (Corte 3) | `backend/src/adapters/in/cli/usuarios.js` → `application/GestionarUsuarios.js` |
 | Casos de uso | `backend/src/application/*.js` |
 | Dominio | `backend/src/domain/**` |
 | Puertos | `backend/src/ports/puertos.js` |
@@ -275,6 +281,8 @@ Detalle y resultados en **[pruebas.md](pruebas.md)**. En resumen:
 
 ## 7. Límites conocidos del diseño y trabajo pendiente para el Corte 3
 
+> Lo que pasó con cada punto en el Corte 3 (resuelto, documentado o límite conocido) está en [evolucion.md §3](evolucion.md#3-pendientes-del-corte-2-y-cómo-se-resolvieron). Esta sección se conserva como se entregó en el Corte 2.
+
 Lo que **no** resolvimos, o resolvimos a medias:
 
 1. **Un solo proceso y SQLite.** El bloqueo optimista ya soporta varias instancias, pero SQLite es un archivo local. Escalar horizontalmente exige PostgreSQL y volver asíncronos los puertos de repositorio.
@@ -286,3 +294,67 @@ Lo que **no** resolvimos, o resolvimos a medias:
 7. **Sin reintento automático** cuando la BD responde `ConflictoConcurrencia`: la app muestra el error.
 8. **No hicimos las bonificaciones** (pruebas de UI con Cypress/Selenium y evaluación de UX con SUS).
 9. **Para el Corte 3:** pipeline de CI/CD que corra `npm test`, la cobertura y el baseline de k6 en cada push, y análisis de dependencias y secretos (DevSecOps). Por ejemplo, hoy `JWT_SECRET` tiene un valor por defecto de desarrollo.
+
+## 8. Vista de despliegue (Corte 3)
+
+Diagrama C4 de despliegue: dónde corre cada contenedor y cómo se comunican. Corresponde a lo que despliega `cd.yml` con `scripts/deploy.sh` (`docker-compose.yml` + `deploy/docker-compose.prod.yml`). Por qué se eligió este entorno y qué alternativas se descartaron: [ADR-008](adr/ADR-008-estrategia-de-despliegue.md).
+
+```mermaid
+flowchart TB
+    subgraph Internet
+      Usr(["Docente · estudiante · técnico · coordinador<br/>navegador o app Expo"])
+      subgraph GitHub["GitHub (nube)"]
+        GHA["GitHub Actions<br/>runners hospedados: CI, publicar,<br/>prueba de humo, ZAP"]
+        GHCR[("GHCR<br/>asistec-backend · asistec-web<br/>sha-xxxxxxx · vX.Y.Z")]
+        SEC["Environments pruebas / produccion<br/>JWT_SECRET · GRAFANA_ADMIN_PASSWORD"]
+      end
+      TS["Tailscale Funnel<br/>TLS de *.ts.net"]
+    end
+
+    subgraph Atlas["Servidor del equipo: Proxmox 'Atlas' (red aislada vmbr710, solo salida a Internet)"]
+      subgraph VM["VM 7200 'asistec' · Debian 13 · 2 vCPU · 3 GiB · 30 GB"]
+        TSD["tailscaled<br/>:443 → 8080 · :8443 → 8081 (Funnel)<br/>:3443 → 3002 (solo tailnet)"]
+        RUN["Runner autohospedado<br/>asistec-atlas (etiqueta asistec)<br/>despliegue + carga k6"]
+        subgraph PROD["Proyecto Compose asistec-produccion"]
+          W1["web · nginx-unprivileged 1.31.7<br/>app Expo + proxy · :8080"]
+          B1["backend · Node 22.22<br/>Express + Socket.IO · :3000<br/>(publicado solo en 127.0.0.1)"]
+          V1[("volumen datos-soporte<br/>/data/soporte.db")]
+          PR["prometheus v3.16.0"]
+          GR["grafana 13.3.0 · 127.0.0.1:3002"]
+        end
+        subgraph PRU["Proyecto Compose asistec-pruebas"]
+          W2["web · :8081"]
+          B2["backend · 127.0.0.1:3001"]
+          V2[("datos-soporte<br/>(se borra en cada despliegue)")]
+        end
+        ENV["/opt/asistec/&lt;entorno&gt;/<br/>.env (0600) · version-actual<br/>version-anterior · historial.log"]
+      end
+    end
+
+    Usr -- "HTTPS" --> TS --> TSD
+    TSD --> W1 & W2
+    TSD -. "tailnet" .-> GR
+    W1 -- "/api, /socket.io (HTTP + WebSocket)<br/>red interna de Compose" --> B1 --> V1
+    W2 --> B2 --> V2
+    PR -- "GET /metrics cada 15 s" --> B1
+    GR --> PR
+    GHA -- "jobs con runs-on: [self-hosted, asistec]<br/>(conexión saliente del runner)" --> RUN
+    SEC -. "secretos del job" .-> RUN
+    RUN -- "docker compose pull / up --wait" --> PROD & PRU
+    GHCR -- "pull de la etiqueta" --> RUN
+    RUN --> ENV
+    GHA -- "prueba de humo y ZAP por la URL pública" --> TS
+```
+
+| Elemento | Qué corre | Puertos y comunicación | Dónde se define |
+|---|---|---|---|
+| **web** | nginx sin root (UID 101) con la app Expo exportada para web; pasa `/api` y `/socket.io` al backend | Escucha en 8080 dentro del contenedor; en el servidor `WEB_PORT` = 8080 (producción) u 8081 (pruebas). Es lo único que llega desde Internet | `app/Dockerfile`, `app/docker/nginx.conf` |
+| **backend** | API Express, Socket.IO y programador de escalación; SQLite en `/data/soporte.db` | 3000 en la red interna de Compose; en el servidor solo en `127.0.0.1` (`BACKEND_PORT` 3000/3001). `/metrics` no pasa por nginx | `backend/Dockerfile` |
+| **datos-soporte** | Volumen de Docker con la base SQLite | Lo monta solo el backend | `docker-compose.yml` |
+| **prometheus**, **grafana** | Métricas del SLO y tablero (perfil `observabilidad`, solo producción) | Prometheus lee `backend:3000/metrics`; Grafana en `127.0.0.1:3002`, publicado solo en la tailnet | `observabilidad/` |
+| **Runner autohospedado** | Servicio de GitHub Actions en la VM, usuario `runner` (grupo docker) | Abre una conexión **saliente** a GitHub; nada entra a la VM desde Internet salvo por Tailscale | Runbook del servidor (fuera del repositorio) |
+| **Tailscale Funnel** | Publica los puertos 8080 y 8081 con HTTPS en `asistec.tail15cf34.ts.net` | `:443` → producción, `:8443` → pruebas; `tailscale serve` `:3443` → Grafana solo para el equipo | Configuración de Tailscale en la VM |
+| **GHCR** | Registro de imágenes | El job **Publicar** hace push; el runner hace pull de `sha-…` o `vX.Y.Z` | `cd.yml` |
+
+**En Kubernetes (bonificación):** los mismos dos contenedores se despliegan en kind desde el workflow `k8s.yml` con los manifiestos de `k8s/`: Deployment `backend` (1 réplica, PVC para SQLite) y `web` (2 réplicas), Services, ConfigMap, Secret creado en el pipeline, probes de liveness y readiness, límites de recursos, ServiceAccounts sin token y NetworkPolicies (solo `web` llega al backend). El backend se queda en una réplica porque SQLite es un archivo local ([evolucion.md §4](evolucion.md#4-límites-conocidos-del-sistema-final)).
+
