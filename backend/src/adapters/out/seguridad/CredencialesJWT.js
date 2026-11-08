@@ -20,6 +20,10 @@ class CredencialesJWT {
     return `${sal}:${hash}`;
   }
 
+  hashearClave(clave) {
+    return CredencialesJWT.hashear(clave);
+  }
+
   verificarClave(clave, guardado) {
     const [sal, hash] = String(guardado).split(':');
     if (!sal || !hash) return false;
