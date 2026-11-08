@@ -125,7 +125,7 @@ gh workflow run rollback.yml -R ItsN3M3515/soporte-tecnico-corte3 -f entorno=pro
 
 El workflow despliega la versión y corre la prueba de humo. Las etiquetas disponibles están en *Packages* (`asistec-backend`) o en el historial del CD (job **Publicar imágenes en GHCR** → Resumen).
 
-**Opción B, en el servidor** (si GitHub no está disponible):
+**Opción B, en el servidor** (si GitHub Actions no está disponible). Como el usuario del runner y con acceso a GHCR (si los paquetes son privados, antes: `echo <token-con-read:packages> | docker login ghcr.io -u <usuario-github> --password-stdin`):
 
 ```bash
 cd ~/soporte-tecnico-corte3          # una copia del repositorio en el servidor

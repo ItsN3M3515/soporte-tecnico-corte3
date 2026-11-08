@@ -58,7 +58,7 @@ Abra <http://localhost:8080>: la app web y la API (por el mismo puerto). `docker
 | Workflow | Cuándo corre | Qué hace |
 |---|---|---|
 | [`ci.yml`](https://github.com/ItsN3M3515/soporte-tecnico-corte3/actions/workflows/ci.yml) | Cada push a una rama y cada PR hacia `main` | 8 jobs = 8 checks del PR (≈ 4 min) |
-| [`cd.yml`](https://github.com/ItsN3M3515/soporte-tecnico-corte3/actions/workflows/cd.yml) | Cada merge a `main` y cada tag `vX.Y.Z` | CI + publicar + desplegar y verificar pruebas y producción (≈ 7 min); con tag, además crea la Release |
+| [`cd.yml`](https://github.com/ItsN3M3515/soporte-tecnico-corte3/actions/workflows/cd.yml) | Cada merge a `main` y cada tag `vX.Y.Z` | CI + publicar + desplegar y verificar pruebas y producción (≈ 6 a 7 min); con tag, además crea la Release |
 | [`rollback.yml`](https://github.com/ItsN3M3515/soporte-tecnico-corte3/actions/workflows/rollback.yml) | A mano | Vuelve a desplegar una versión anterior y corre la prueba de humo |
 | [`slo-larga.yml`](https://github.com/ItsN3M3515/soporte-tecnico-corte3/actions/workflows/slo-larga.yml) | A mano | Prueba de carga larga (escenario `pico` del Corte 2) con los umbrales del SLO |
 | [`k8s.yml`](https://github.com/ItsN3M3515/soporte-tecnico-corte3/actions/workflows/k8s.yml) | Cambios en `k8s/`, Dockerfile o nginx | Despliegue en kind, prueba de humo y NetworkPolicy (bonificación) |

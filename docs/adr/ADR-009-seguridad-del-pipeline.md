@@ -47,7 +47,7 @@ Reglas que acompañan los umbrales:
 ## Consecuencias
 
 **Positivas**
-- Los cuatro controles corren en paralelo y el CI completo tarda ≈ 4 minutos (umbral del enunciado: 10). El más lento es el escaneo de imágenes, gracias a la caché de capas.
+- Los cuatro controles corren en paralelo y el CI completo tarda ≈ 4 minutos (umbral del enunciado: 10). Con la caché de capas, el escaneo de imágenes bajó de 3 min 21 s en la primera ejecución a ≈ 1 min 10 s.
 - Funcionan: el PR [#22](https://github.com/ItsN3M3515/soporte-tecnico-corte3/pull/22) con lodash 4.17.15 quedó bloqueado por SCA y por el escaneo de la imagen.
 - Encontraron problemas reales antes de la primera versión: `body-parser`, `shell-quote` (crítica), paquetes de Debian y Alpine (H-04 a H-07) y cabeceras de nginx (H-08).
 - Los mismos scripts corren en local (`scripts/sca.sh`, `scripts/secretos.sh`, `scripts/escaneo-imagen.sh`).

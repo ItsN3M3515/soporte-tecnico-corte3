@@ -43,7 +43,7 @@ Un pipeline de GitHub Actions construye, prueba y escanea cada cambio, publica l
 
 | Software | Versión | Dónde | Cómo comprobarlo |
 |---|---|---|---|
-| Docker Engine | 24 o superior (probado con 26 a 29) | Servidor | `docker --version` |
+| Docker Engine | 24 o superior (probado con Docker 29) | Servidor | `docker --version` |
 | Docker Compose (plugin) | v2.20 o superior (usa `up --wait --wait-timeout`) | Servidor | `docker compose version` |
 | Git, curl, jq, openssl | Los de la distribución (jq ≥ 1.6) | Servidor y su computador | `jq --version` |
 | Runner de GitHub Actions | El que ofrezca GitHub al registrarlo (probado con 2.338) | Servidor | Settings → Actions → Runners |
@@ -148,6 +148,8 @@ En el servidor, con un usuario que tenga `sudo`:
 
    **Resultado esperado:** la última línea muestra la cabecera `CONTAINER ID   IMAGE ...` sin error de permisos.
 
+   **Desde aquí, todos los comandos del servidor se ejecutan como el usuario `runner`** (tiene acceso a Docker y es dueño de `/opt/asistec`): entre con `sudo -iu runner` y salga con `exit`. Los comandos `gh` se ejecutan en su computador. Cada bloque dice dónde va.
+
 3. En el firewall del proveedor (o del centro de datos) deje entrar solo 22 (desde su red de administración) y, si usa dominio propio, 80 y 443. **Nota:** los puertos que publica Docker no los filtra `ufw`; use el firewall del proveedor o de la red.
 
 ### 5.2 Copiar el repositorio a su organización
@@ -174,19 +176,25 @@ git push origin main
 
 **Resultado esperado:** `git diff --stat` muestra `.github/workflows/cd.yml`, `.github/workflows/k8s.yml`, `deploy/docker-compose.prod.yml`, `k8s/10-backend.yaml` y `k8s/20-web.yaml`. El push a `main` funciona porque todavía no hay reglas (se activan en §5.8). Este push dispara el workflow **CD**, que fallará en "Desplegar en pruebas" hasta terminar §5.3 a §5.5: es normal.
 
-### 5.3 Prueba rápida en el servidor (opcional, 3 minutos)
+### 5.3 Copia del repositorio en el servidor y prueba rápida
 
-Comprueba que el servidor puede construir y correr el sistema antes de conectar el pipeline:
+La copia en el servidor la usan los scripts de operación (copias de seguridad, reversión manual) y la generación de los QR. En el servidor, como `runner`:
 
 ```bash
+sudo -iu runner
 git clone https://github.com/<organización>/asistec.git ~/asistec && cd ~/asistec
+```
+
+**Prueba rápida (opcional, 3 minutos):** comprueba que el servidor puede construir y correr el sistema antes de conectar el pipeline:
+
+```bash
 cp .env.example .env
 sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
 docker compose up -d --build --wait
 curl -s http://localhost:8080/api/salud
 ```
 
-**Resultado esperado:** `✔ Container asistec-web-1  Healthy` y luego `{"estado":"ok"}`. Bórrelo antes de seguir, para liberar el puerto 8080: `docker compose down --volumes`.
+**Resultado esperado:** `✔ Container asistec-web-1  Healthy` y luego `{"estado":"ok"}`. Después apague esos contenedores para liberar el puerto 8080 (conserve la carpeta `~/asistec`): `docker compose down --volumes && rm .env`.
 
 ### 5.4 Registrar el runner autohospedado
 
@@ -211,7 +219,7 @@ curl -s http://localhost:8080/api/salud
 
 1. **Settings → Code security:** active **Dependency graph** y **Dependabot alerts** (el paso de revisión de dependencias del CI los necesita). En **Code scanning**, deje CodeQL en modo avanzado (no active *Default setup*): el workflow `ci.yml` ya lo ejecuta.
 
-2. Cree los environments y limítelos a `main` y a los tags de versión (con `gh` desde su computador):
+2. Cree los environments y limítelos a `main` y a los tags de versión (con `gh` desde su computador). `R` guarda el nombre del repositorio para los comandos de este paso y del siguiente, en la misma terminal:
 
    ```bash
    R=<organización>/asistec
@@ -271,8 +279,10 @@ curl -s http://localhost:8080/api/salud
 
 En el primer arranque, si la base está vacía, el backend carga los datos de `backend/src/config/datosIniciales.js`: sedes y edificios (`SEDES`), mapa de cercanía entre edificios (`MAPA_CERCANIA`), salones (`SALONES`), tipos de equipo (`TIPOS_EQUIPO`), técnicos (`TECNICOS`) y cuentas (`USUARIOS`). Vienen con datos de demostración (2 sedes, 6 edificios, 61 equipos, 4 técnicos).
 
-1. **Antes del primer despliegue**, reemplace esos datos por los de su organización en `backend/src/config/datosIniciales.js` (los códigos de equipo se generan como `<SEDE>-<EDIFICIO>-<SALÓN>-<EQUIPO>`, por ejemplo `CAM-K-101-VB01`). Súbalo a `main`.
-2. Genere los QR para imprimir (solo necesita Docker):
+1. **Antes del primer despliegue**, reemplace sedes, edificios, salones, equipos y técnicos por los de su organización en `backend/src/config/datosIniciales.js` (los códigos de equipo se generan como `<SEDE>-<EDIFICIO>-<SALÓN>-<EQUIPO>`, por ejemplo `CAM-K-101-VB01`). Súbalo a `main`.
+
+   **Conserve en `USUARIOS` la cuenta `docente` / `docente123` y al menos un técnico en la sede del QR de la prueba de humo.** El entorno de pruebas se crea desde estos datos en cada despliegue y su prueba de humo completa inicia sesión con `docente`, crea una solicitud y espera que quede asignada a un técnico libre. Son datos de prueba: en producción se retiran o cambian con la consola en §5.7.
+2. Genere los QR para imprimir (en el servidor, como `runner`; solo necesita Docker):
 
    ```bash
    cd ~/asistec && git pull
@@ -280,7 +290,7 @@ En el primer arranque, si la base está vacía, el backend carga los datos de `b
    ```
 
    **Resultado esperado:** `61 QR generados en docs/qr/` (o la cantidad de sus equipos). Abra `docs/qr/imprimir.html` en un navegador e imprímalo; cada QR se pega en su equipo. Se imprimen con corrección de errores H: siguen leyéndose con un rayón.
-3. Si cambió los equipos, defina el QR que usará la prueba de humo: `gh variable set HUMO_QR --body "SOPORTE:v1:<código-de-un-equipo>" -R $R`.
+3. Si cambió los equipos, defina el QR que usará la prueba de humo (en su computador): `gh variable set HUMO_QR --body "SOPORTE:v1:<código-de-un-equipo>" -R <organización>/asistec`.
 
 **Importante:** los datos iniciales solo se cargan con la base vacía. En producción la base persiste entre despliegues, así que cambiar `datosIniciales.js` después del primer despliegue no modifica producción (en pruebas sí, porque su base se borra en cada despliegue).
 
@@ -288,15 +298,15 @@ En el primer arranque, si la base está vacía, el backend carga los datos de `b
 
 1. **Primer despliegue:** en GitHub, **Actions → CD → Run workflow** (rama `main`).
 
-   **Resultado esperado** (≈ 7 minutos): todos los jobs en verde, de **CI** a **Prueba de humo (producción)**; **Reversión automática** y **Release** aparecen como omitidos. En el servidor:
+   **Resultado esperado** (≈ 6 a 7 minutos): todos los jobs en verde, de **CI** a **Prueba de humo (producción)**; **Reversión automática** y **Release** aparecen como omitidos. En el servidor:
 
    ```bash
    docker compose ls
    ```
 
-   muestra `asistec-pruebas` con `running(2)` y `asistec-produccion` con `running(4)` (web, backend, Prometheus y Grafana).
+   (en el servidor, como `runner`) muestra `asistec-pruebas` con `running(2)` y `asistec-produccion` con `running(4)` (web, backend, Prometheus y Grafana).
 
-2. **Cree el coordinador real** en producción. La clave se pide dos veces y no se muestra (mínimo 10 caracteres):
+2. **Cree el coordinador real** en producción (en el servidor, como `runner`). La clave se pide dos veces y no se muestra (mínimo 10 caracteres):
 
    ```bash
    docker exec -it asistec-produccion-backend-1 node src/adapters/in/cli/usuarios.js crear \
@@ -307,16 +317,23 @@ En el primer arranque, si la base está vacía, el backend carga los datos de `b
 
 3. **Cree la cuenta de la prueba de humo y regístrela en GitHub.** La prueba de humo de producción inicia sesión después de cada despliegue; por defecto usa la cuenta de demostración `docente`, que va a retirar en el paso 4. **Haga este paso antes del 4**, o el siguiente despliegue fallará y producción se revertirá sola:
 
+   En el servidor, como `runner`:
+
    ```bash
    docker exec -it asistec-produccion-backend-1 node src/adapters/in/cli/usuarios.js crear \
      --usuario monitor.humo --nombre "Monitor de la prueba de humo" --rol DOCENTE --sede <SEDE>
-   gh variable set HUMO_USUARIO --body monitor.humo -R $R
-   gh secret set HUMO_CLAVE -R $R        # pega la misma clave cuando la pida
+   ```
+
+   En su computador (`gh secret set` pide la clave: pegue la misma):
+
+   ```bash
+   gh variable set HUMO_USUARIO --body monitor.humo -R <organización>/asistec
+   gh secret set HUMO_CLAVE -R <organización>/asistec
    ```
 
    `<SEDE>` es una de las sedes de los datos iniciales (por ejemplo `CAMPUS`). La prueba de producción es de solo lectura: esta cuenta nunca crea solicitudes.
 
-4. **Retire las cuentas de demostración** y cambie la clave de los técnicos:
+4. **Retire las cuentas de demostración** y cambie la clave de los técnicos (en el servidor, como `runner`):
 
    ```bash
    for U in admin docente docente.norte estudiante; do
@@ -368,7 +385,7 @@ En el primer arranque, si la base está vacía, el backend carga los datos de `b
    HUMO_USUARIO=monitor.humo HUMO_CLAVE='<clave>' scripts/smoke-test.sh https://<url-de-produccion> lectura
    ```
 
-   **Resultado esperado:** cada paso con `OK` y al final `==> Prueba de humo superada`. En pruebas el paso 6 dice `OK (ASIGNADA a <técnico>)`: la solicitud se creó y se asignó.
+   **Resultado esperado:** cada paso con `OK` y al final `==> Prueba de humo superada`. En pruebas el paso 6 dice `OK (ASIGNADA a <técnico>)`: la solicitud se creó y se asignó. Si cambió los equipos (§5.6), agregue al comienzo de cada comando `HUMO_QR='SOPORTE:v1:<código-de-un-equipo>'`.
 
 3. **Recorrido por el flujo principal** en el entorno de pruebas (tiene las cuentas de demostración y se borra en cada despliegue):
    1. Abra `https://<url-de-pruebas>` en dos ventanas. En una, inicie sesión como técnico (`laura` / `tecnico123`); en la otra, como docente (`docente` / `docente123`). La pantalla de inicio de sesión tiene botones de "Cuentas de prueba".
@@ -379,7 +396,7 @@ En el primer arranque, si la base está vacía, el backend carga los datos de `b
 
 ## 7. Operación
 
-En el servidor, los contenedores se llaman `<proyecto>-<servicio>-1`, con proyecto `asistec-produccion` o `asistec-pruebas` (por ejemplo `asistec-produccion-backend-1`). Si su usuario no está en el grupo `docker`, anteponga `sudo` o use `sudo -iu runner`.
+Los comandos de esta sección se ejecutan **en el servidor, como el usuario `runner`** (`sudo -iu runner`), salvo los de `gh`, que van en su computador. Los contenedores se llaman `<proyecto>-<servicio>-1`, con proyecto `asistec-produccion` o `asistec-pruebas` (por ejemplo `asistec-produccion-backend-1`).
 
 ### 7.1 Publicar una versión nueva
 
@@ -432,15 +449,15 @@ scripts/restaurar.sh asistec-produccion /opt/asistec/respaldos/<archivo>.db
 sudo -iu runner bash -c '(crontab -l 2>/dev/null; echo "0 2 * * * cd /home/runner/asistec && scripts/respaldo.sh asistec-produccion /opt/asistec/respaldos >> /opt/asistec/respaldos/respaldo.log 2>&1 && find /opt/asistec/respaldos -name \"*.db\" -mtime +30 -delete") | crontab -'
 ```
 
-Requiere una copia del repositorio en `/home/runner/asistec` (`sudo -iu runner git clone https://github.com/<organización>/asistec.git`). Borra las copias de más de 30 días.
+Usa la copia del repositorio de §5.3 (`/home/runner/asistec`). Borra las copias de más de 30 días.
 
 ### 7.4 Cambiar un secreto
 
 | Secreto | Cómo | Efecto |
 |---|---|---|
-| `JWT_SECRET` | `gh secret set JWT_SECRET --env produccion --body "$(openssl rand -hex 32)" -R $R` y luego **Actions → CD → Run workflow** | El despliegue reescribe el `.env` y recrea el backend. Todas las sesiones abiertas se cierran: los usuarios vuelven a iniciar sesión |
+| `JWT_SECRET` | `gh secret set JWT_SECRET --env produccion --body "$(openssl rand -hex 32)" -R <organización>/asistec` y luego **Actions → CD → Run workflow** | El despliegue reescribe el `.env` y recrea el backend. Todas las sesiones abiertas se cierran: los usuarios vuelven a iniciar sesión |
 | Clave de una cuenta | `docker exec -it asistec-produccion-backend-1 node src/adapters/in/cli/usuarios.js clave --usuario <usuario>` | Inmediato |
-| `HUMO_CLAVE` | Primero cambie la clave de `monitor.humo` (fila anterior) y luego `gh secret set HUMO_CLAVE -R $R` | La próxima prueba de humo usa la nueva |
+| `HUMO_CLAVE` | Primero cambie la clave de `monitor.humo` (fila anterior) y luego `gh secret set HUMO_CLAVE -R <organización>/asistec` | La próxima prueba de humo usa la nueva |
 | Clave de Grafana | `docker exec -it asistec-produccion-grafana-1 grafana cli --homepath /usr/share/grafana admin reset-admin-password <clave-nueva>` y actualice `GRAFANA_ADMIN_PASSWORD` en GitHub | Grafana guarda la clave en su base la primera vez que arranca; cambiar solo la variable no la cambia |
 
 ### 7.5 Consultar los logs
@@ -470,10 +487,10 @@ sudo /home/runner/actions-runner/svc.sh stop && sudo /home/runner/actions-runner
 |---|---|---|---|
 | 1 | `docker compose up` se detiene con `required variable JWT_SECRET is missing a value: Defina JWT_SECRET (ver .env.example)` | No existe `.env` o le falta `JWT_SECRET` | `cp .env.example .env` y ponga un valor: `sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env` |
 | 2 | Los jobs **Desplegar en pruebas** quedan en *Queued*: `Waiting for a runner to pick up this job` | El runner está apagado o desconectado, o no tiene la etiqueta `asistec` | En el servidor: `sudo /home/runner/actions-runner/svc.sh status`. Si está detenido: `sudo /home/runner/actions-runner/svc.sh start`. Revise en Settings → Actions → Runners que esté *Idle* con la etiqueta `asistec`. Los jobs esperan hasta 24 h y luego fallan |
-| 3 | El paso "Escribir el .env del entorno" falla con `JWT_SECRET debe tener al menos 32 caracteres` o `Falta JWT_SECRET (configúrelo en el environment …)` | El secreto no está en ese environment, es corto, o se definió como secreto del repositorio en vez del environment | `gh secret set JWT_SECRET --env <pruebas o produccion> --body "$(openssl rand -hex 32)" -R $R` |
+| 3 | El paso "Escribir el .env del entorno" falla con `JWT_SECRET debe tener al menos 32 caracteres` o `Falta JWT_SECRET (configúrelo en el environment …)` | El secreto no está en ese environment, es corto, o se definió como secreto del repositorio en vez del environment | `gh secret set JWT_SECRET --env <pruebas o produccion> --body "$(openssl rand -hex 32)" -R <organización>/asistec` |
 | 4 | El despliegue falla con `permission denied while trying to connect to the Docker daemon socket` | El usuario `runner` no está en el grupo `docker`, o el servicio arrancó antes de agregarlo | `sudo usermod -aG docker runner` y reinicie el runner (§7.6) |
 | 5 | La prueba de humo de producción falla en el paso 3 (`no devolvió un token para docente`) y producción se revierte sola | Se retiraron las cuentas de demostración sin registrar la cuenta de la prueba de humo | Haga §5.7 paso 3 (cuenta `monitor.humo`, variable `HUMO_USUARIO`, secreto `HUMO_CLAVE`) y vuelva a correr **CD** |
-| 6 | La prueba de humo falla en el paso 5 (`no resolvió el equipo CAM-K-101-VB01`) | Cambió los datos iniciales y ese equipo ya no existe | `gh variable set HUMO_QR --body "SOPORTE:v1:<código-de-un-equipo>" -R $R` |
+| 6 | La prueba de humo falla en el paso 5 (`no resolvió el equipo CAM-K-101-VB01`) | Cambió los datos iniciales y ese equipo ya no existe | `gh variable set HUMO_QR --body "SOPORTE:v1:<código-de-un-equipo>" -R <organización>/asistec` |
 | 7 | `docker compose pull` falla con `denied` o `unauthorized` al bajar de `ghcr.io/…` | El nombre de la imagen no coincide con el dueño del repositorio (§5.2) o el paquete no le da acceso al repositorio | Revise que `deploy/docker-compose.prod.yml` y `cd.yml` digan `ghcr.io/<organización-en-minúsculas>`. En GitHub: *Packages* → `asistec-backend` → *Package settings* → *Manage Actions access*: agregue el repositorio con rol *Read* |
 | 8 | `docker compose up` falla con `Bind for 0.0.0.0:8080 failed: port is already allocated` | Otro programa usa el puerto 8080 (por ejemplo la prueba de §5.3 sin borrar) | `docker ps` para ver qué lo usa y deténgalo (`docker compose down` en esa carpeta), o cambie `WEB_PORT` en `.env` |
 | 9 | La página carga pero no inicia sesión ni muestra datos (error 502 en `/api`) | El backend no está sano; `web` no tiene a quién pasarle la petición | `docker logs --tail 50 asistec-produccion-backend-1`. Si dice `Falta la variable JWT_SECRET`, ver #3; si es otro error, reinicie (§7.6) o revierta (§7.2) |
