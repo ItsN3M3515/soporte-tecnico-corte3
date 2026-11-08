@@ -16,3 +16,11 @@ paths = ['''^perf/resultados/[a-z0-9-]+-resumen\.json$''']
 [[allowlists]]
 description = "H-03: JavaScript minificado del reporte de pruebas"
 paths = ['''^docs/evidencias/reporte-pruebas\.html$''']
+
+# H-13 en docs/seguridad.md (falso positivo): constante de una prueba de integración en un commit
+# descartado de la rama c3-41-documentacion-y-usuarios (nunca llegó a main). El valor no protegía
+# nada: era el JWT_SECRET de una base SQLite temporal de la prueba. La prueba ahora lo genera al azar.
+[[allowlists]]
+description = "H-13: constante de prueba en un commit descartado (rama c3-41)"
+commits = ['fb01cc34fd41262cbc5f7db0e842803caba76589']
+

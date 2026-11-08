@@ -9,7 +9,7 @@ Documentación del Corte 3 y lo que la guía de implementación necesitaba para 
 ### Agregado
 - Consola de usuarios (`backend/src/adapters/in/cli/usuarios.js`) y caso de uso `GestionarUsuarios`: crear el primer coordinador, cambiar claves (mínimo 10 caracteres) y retirar las cuentas de demostración, sin editar el código. Pruebas unitarias y de integración contra SQLite real.
 - `scripts/respaldo.sh` y `scripts/restaurar.sh`: copia de seguridad en caliente (`VACUUM INTO`) y restauración con copia previa.
-- Documentación: `docs/seguridad.md` (STRIDE, controles, hallazgos H-01 a H-12, riesgos R-01 a R-05, PR bloqueado), `docs/devops.md`, vista de despliegue en `docs/arquitectura.md` §8, ADR-008 (despliegue), ADR-009 (seguridad del pipeline), `docs/evolucion.md`, `docs/implementacion.md`, este archivo y el README del Corte 3 con la tabla de trazabilidad ampliada.
+- Documentación: `docs/seguridad.md` (STRIDE, controles, hallazgos H-01 a H-13, riesgos R-01 a R-05, PR bloqueado), `docs/devops.md`, vista de despliegue en `docs/arquitectura.md` §8, ADR-008 (despliegue), ADR-009 (seguridad del pipeline), `docs/evolucion.md`, `docs/implementacion.md`, este archivo y el README del Corte 3 con la tabla de trazabilidad ampliada.
 
 ### Cambiado
 - La prueba de humo acepta su propia cuenta y equipo (`HUMO_USUARIO`, `HUMO_CLAVE`, `HUMO_QR`): producción puede retirar las cuentas de demostración sin que cada despliegue falle y se revierta. Sin esas variables se comporta igual que antes.
