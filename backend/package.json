@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "dependency-cruiser": "18.7.2",
+    "dependency-cruiser": "18.8.0",
     "eslint": "^10.15.0",
     "eslint-plugin-jest": "^29.17.1",
     "eslint-plugin-security": "^4.2.1",
