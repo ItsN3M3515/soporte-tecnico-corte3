@@ -8,14 +8,14 @@
 
 # Etapa 1: instalar SOLO las dependencias de produccion
 # (sin jest, eslint, supertest, playwright... que no deben llegar a la imagen final)
-FROM node:22.22-bookworm-slim AS deps
+FROM node:22.23-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 
 # Etapa 2: imagen final, solo con el runtime, las dependencias y el codigo
-FROM node:22.22-bookworm-slim
+FROM node:22.23-bookworm-slim
 # NODE_OPTIONS: sin el aviso "SQLite is experimental" también en los comandos de consola
 # (docker compose exec backend node src/adapters/in/cli/usuarios.js ...)
 ENV NODE_ENV=production \
